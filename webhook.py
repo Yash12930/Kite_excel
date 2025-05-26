@@ -11,7 +11,7 @@ from kiteconnect.exceptions import KiteException
 from functions import (
     update_input_sheet, update_portfolio_sheet, update_holdings_sheet,
     update_orders_sheet, process_order_modifications, update_settings_sheet,
-    fetch_holdings, autofill_input_sheet_with_portfolio_holdings,
+    fetch_holdings, autofill_input_sheet_with_portfolio_holdings, process_input_sheet_orders
 )
 
 API_KEY = "v6khvkcvmrjba7fb" 
@@ -21,6 +21,7 @@ PREFETCH_EXCHANGES = ["NSE", "NFO", "BSE", "BFO", "MCX"]
 GENERAL_UPDATE_INTERVAL_SECONDS = 2
 app = Flask(__name__)
 refresh_queue = queue.Queue() 
+order_id_map = {}
 
 kite, wb, inp, port, hold, ords, sett, kws = (None,) * 8
 live_ticks, all_instruments_cache, symbol_to_token_map, token_to_symbol_map = {}, {}, {}, {}
@@ -177,7 +178,7 @@ if __name__=="__main__":
                     token_to_symbol_map[token_val_main] = full_sym_str_main
             except Exception as e_instr_fetch_main: pass
         wb = xw.Book(EXCEL_FILE) 
-        sheet_names_list_main = ["INPUT", "Portfolio", "Holdings", "Orders", "Settings"]
+        sheet_names_list_main = ["INPUT", "Portfolio", "Holdings", "Orders", "Funds"]
         for sheet_name_str_main in sheet_names_list_main: 
             if sheet_name_str_main not in [s.name for s in wb.sheets]: 
                 wb.sheets.add(sheet_name_str_main)
@@ -275,6 +276,10 @@ if __name__=="__main__":
                     try: update_settings_sheet(sett, kite)
                     except Exception as e_gen_update_margin_main_loop_iter: pass
                 except Exception as e_general_sheet_update_main_loop_iter: pass
+                try:
+                    process_input_sheet_orders(inp, kite, order_id_map)
+                except Exception as e_input_orders:
+                    pass
                 last_general_sheets_update_timestamp = time.time()
             
             time.sleep(0.01)

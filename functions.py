@@ -156,16 +156,13 @@ def update_orders_sheet(sheet_ords, kite):
                     o_item.get("order_timestamp"),                           # O
                     o_item.get("parent_order_id", "")                        # P
                 ])
-        update_sheet_with_data(sheet_ords, orders_rows_for_sheet, "A2", 16, MAX_ORDERS_ROWS + 1, "AA1")
-    except KiteException as ke_orders:
-        print(f"[{dt_now_str_fn()}] Kite API Error fetching orders: {ke_orders}")
-    except Exception as e_orders_update_gen:
-        print(f"[{dt_now_str_fn()}] General Error updating orders sheet: {e_orders_update_gen}")
+        update_sheet_with_data(sheet_ords, orders_rows_for_sheet, "A2", 16, MAX_ORDERS_ROWS + 1, "AA1")            
+    except Exception as e:
+        print(f"Error updating orders sheet: {e}")
 
 def process_order_modifications(sheet_ords, kite):
     try:
-        orders_data_block = sheet_ords.range(f"A2:Z{min(MAX_ORDERS_ROWS, 200) + 1}").value
-        
+        orders_data_block = sheet_ords.range(f"A2:X{min(MAX_ORDERS_ROWS, 200) + 1}").value
         for i, row_data in enumerate(orders_data_block):
             if not row_data or not row_data[0]:
                 continue
@@ -179,63 +176,68 @@ def process_order_modifications(sheet_ords, kite):
                 
             variety = str(row_data[1] or 'regular').lower()
             status = str(row_data[2] or '').upper()
-            tradingsymbol = row_data[3]
-            exchange = row_data[4]
-            order_type = row_data[5]
-            product = row_data[6]
-            transaction_type = row_data[7]
-            quantity = row_data[8]
-            price = row_data[9]
-            trigger_price = row_data[10]
-            
+            parent_order_id = row_data[15] if len(row_data) > 15 else None
             modify_flag = str(row_data[16] or '').strip().upper()
             cancel_flag = str(row_data[17] or '').strip().upper()
             if cancel_flag in ["YES", "CANCEL", "C"]:
-                try:
-                    kite.cancel_order(variety=variety, order_id=order_id)
-                    sheet_ords.range(f"R{excel_row_num}").value = "Cancelled"
-                    print(f"Order {order_id} cancelled successfully")
-                except Exception as e:
-                    print(f"Order can't be cancelled with reason : {e}")
-                    sheet_ords.range(f"R{excel_row_num}").value = f"Cancel Error: {str(e)[:20]}"
-            elif modify_flag in ["YES", "REPLACE", "MODIFY"]:
-                try:
-                    new_price = row_data[18] if len(row_data) > 18 else None  
-                    new_trigger = row_data[19] if len(row_data) > 19 else None   
-                    new_qty = row_data[20] if len(row_data) > 20 else None  
-                    new_order_type = row_data[21] if len(row_data) > 21 else None 
-                    new_product = row_data[22] if len(row_data) > 22 else None  
-                    new_validity = row_data[23] if len(row_data) > 23 else None 
-                    order_params = {
-                        "variety": variety,
-                        "exchange": exchange,
-                        "tradingsymbol": tradingsymbol,
-                        "transaction_type": transaction_type,
-                        "quantity": int(new_qty) if new_qty else int(quantity),
-                        "order_type": str(new_order_type).upper() if new_order_type else str(order_type).upper(),
-                        "product": str(new_product).upper() if new_product else str(product).upper(),
-                        "validity": str(new_validity).upper() if new_validity else "DAY"
-                    }
-                    if order_params["order_type"] in ["LIMIT", "SL", "SL-M"]:
-                        if new_price:
-                            order_params["price"] = float(new_price)
-                        elif price:
-                            order_params["price"] = float(price)
-                            
-                    if order_params["order_type"] in ["SL", "SL-M"]:
-                        if new_trigger:
-                            order_params["trigger_price"] = float(new_trigger)
-                        elif trigger_price:
-                            order_params["trigger_price"] = float(trigger_price)
-                    new_order_id = kite.modify_order(**order_params)
-                    sheet_ords.range(f"Q{excel_row_num}").value = f"Replaced: {new_order_id}"
-                    sheet_ords.range(f"S{excel_row_num}:Z{excel_row_num}").value = ""
-                    print(f"Order {order_id} replaced with {new_order_id}")
-                    
-                except Exception as e:
-                    error_msg = f"Replace Error: {str(e)[:30]}"
-                    sheet_ords.range(f"Q{excel_row_num}").value = error_msg
-                    print(f"Replace failed for {order_id}: {e}")
+                if status in ["OPEN", "TRIGGER PENDING", "AMO MODIFIED", "AMO REQ RECEIVED"]:
+                    try:
+                        if variety == 'co' and parent_order_id:
+                            kite.cancel_order(variety=variety, order_id=order_id, parent_order_id=str(parent_order_id))
+                        else:
+                            kite.cancel_order(variety=variety, order_id=order_id)
+                        sheet_ords.range(f"R{excel_row_num}").value = "Cancelled"
+                        print(f"Order {order_id} cancelled successfully")
+                    except Exception as e:
+                        print(f"Order can't be cancelled with reason : {e}")
+                        sheet_ords.range(f"R{excel_row_num}").value = f"Cancel Error: {str(e)[:20]}"
+                else:
+                    sheet_ords.range(f"R{excel_row_num}").value = "Not Cancellable"
+            elif modify_flag in ["YES", "MODIFY"]:
+                if status in ["OPEN", "TRIGGER PENDING", "AMO MODIFIED", "AMO REQ RECEIVED"]:
+                    try:
+                        new_price = row_data[18] if len(row_data) > 18 else None    
+                        new_trigger = row_data[19] if len(row_data) > 19 else None    
+                        new_qty = row_data[20] if len(row_data) > 20 else None       
+                        new_order_type = row_data[21] if len(row_data) > 21 else None 
+                        new_validity = row_data[22] if len(row_data) > 22 else None  
+                        new_disclosed_qty = row_data[23] if len(row_data) > 23 else None 
+                        modify_params = {
+                            "variety": variety,
+                            "order_id": order_id
+                        }
+                        if new_price is not None and str(new_price).strip() != "":
+                            modify_params["price"] = float(new_price)
+                        
+                        if new_trigger is not None and str(new_trigger).strip() != "":
+                            modify_params["trigger_price"] = float(new_trigger)
+                        
+                        if new_qty is not None and str(new_qty).strip() != "":
+                            modify_params["quantity"] = int(new_qty)
+                        
+                        if new_order_type and str(new_order_type).strip() != "":
+                            modify_params["order_type"] = str(new_order_type).upper()
+                        
+                        if new_validity and str(new_validity).strip() != "":
+                            modify_params["validity"] = str(new_validity).upper()
+                        
+                        if new_disclosed_qty is not None and str(new_disclosed_qty).strip() != "":
+                            modify_params["disclosed_quantity"] = int(new_disclosed_qty)
+                        if variety == 'co' and parent_order_id:
+                            modify_params["parent_order_id"] = str(parent_order_id)
+                        
+                        print(f"Modifying order with params: {modify_params}")
+                        modified_order_id = kite.modify_order(**modify_params)
+                        sheet_ords.range(f"Q{excel_row_num}").value = f"Modified: {modified_order_id}"
+                        sheet_ords.range(f"S{excel_row_num}:X{excel_row_num}").value = ""
+                        print(f"Order {order_id} modified successfully")
+                        
+                    except Exception as e:
+                        error_msg = f"Modify Error: {str(e)[:30]}"
+                        sheet_ords.range(f"Q{excel_row_num}").value = error_msg
+                        print(f"Modify failed for {order_id}: {e}")
+                else:
+                    sheet_ords.range(f"Q{excel_row_num}").value = "Not Modifiable"
                     
     except Exception as e:
         print(f"Error in process_order_modifications: {e}")
@@ -336,3 +338,74 @@ def get_price_fields_with_fallback(symbol_str, quotes, kite):
         q_data.get("ohlc", {}).get("close", "")
     ]
     return price_row
+
+def process_input_sheet_orders(sheet_inp, kite, order_id_map):
+    try:
+        data = sheet_inp.range("A2:Y201").value
+        for i, row in enumerate(data):
+            idx = i + 2
+            row = (row + [None]*25)[:25]
+            symbol = row[0]
+            qty = row[11]
+            direction = row[12]
+            entry_signal = row[13]
+            entry_status = row[15]
+            variety = row[18]
+            order_type = row[19]
+            product = row[20]
+            validity = row[21]
+            price = row[22]
+            trigger_price = row[23]
+            ttl_minutes = row[24]
+            if (symbol and qty and direction and entry_signal and variety and order_type and product and validity and
+                str(entry_signal).strip().lower() == "yes" and (not entry_status or entry_status == "")):
+                try:
+                    exchange, tradingsymbol = symbol.split(":")
+                    order_params = dict(
+                        variety=variety.strip().lower(),
+                        exchange=exchange,
+                        tradingsymbol=tradingsymbol,
+                        transaction_type=direction.strip().upper(),
+                        quantity=int(qty),
+                        order_type=order_type.strip().upper(),
+                        product=product.strip().upper(),
+                        validity=validity.strip().upper()
+                    )
+                    if order_type.strip().upper() in ["LIMIT", "SL", "SL-M"] and price:
+                        order_params["price"] = float(price)
+                    if order_type.strip().upper() in ["SL", "SL-M"] and trigger_price:
+                        order_params["trigger_price"] = float(trigger_price)
+                    if validity.strip().upper() == "TTL" and ttl_minutes:
+                        order_params["validity_ttl"] = int(ttl_minutes)
+                    order_id = kite.place_order(**order_params)
+                    order_id_map[idx] = order_id
+                    sheet_inp.range(f"P{idx}").value = f"Placed: {order_id}"
+                    sheet_inp.range(f"N{idx}").value = ""
+                except Exception as e:
+                    sheet_inp.range(f"P{idx}").value = f"ERROR: {str(e)}"
+                    sheet_inp.range(f"N{idx}").value = "" 
+            elif entry_status and isinstance(entry_status, str) and (
+                "TRIGGER PENDING" in entry_status or "PENDING" in entry_status or "OPEN" in entry_status):
+                order_id = order_id_map.get(idx)
+                if order_id:
+                    try:
+                        order_history = kite.order_history(order_id=order_id)
+                        if order_history:
+                            last_update = order_history[-1]
+                            status = last_update['status']
+                            filled_qty = last_update['filled_quantity']
+                            if status in ["TRIGGER PENDING", "OPEN"]:
+                                entry_cell = f"TRIGGER PENDING ({filled_qty})"
+                            elif status == "COMPLETE":
+                                entry_cell = f"ORDERED ({filled_qty})"
+                            elif status == "PARTIAL":
+                                entry_cell = f"PARTIAL ({filled_qty})"
+                            elif status in ["REJECTED", "CANCELLED"]:
+                                entry_cell = f"ERROR: {status}"
+                            else:
+                                entry_cell = f"PENDING ({filled_qty})"
+                            sheet_inp.range(f"P{idx}").value = entry_cell
+                    except Exception as e:
+                        sheet_inp.range(f"P{idx}").value = f"ERROR: {str(e)}"
+    except Exception as e:
+        print(f"Error in process_input_sheet_orders: {e}")
