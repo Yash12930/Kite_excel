@@ -11,7 +11,8 @@ from kiteconnect.exceptions import KiteException
 from functions import (
     update_input_sheet, update_portfolio_sheet, update_holdings_sheet,
     update_orders_sheet, process_order_modifications, update_settings_sheet,
-    fetch_holdings, autofill_input_sheet_with_portfolio_holdings, process_input_sheet_orders
+    fetch_holdings, autofill_input_sheet_with_portfolio_holdings, process_input_sheet_orders,
+    set_input_sheet_defaults
 )
 
 API_KEY = "v6khvkcvmrjba7fb" 
@@ -268,6 +269,7 @@ if __name__=="__main__":
                 except Exception as e_gen_update_data_fetch_main_loop_iter: pass
                 try:
                     autofill_input_sheet_with_portfolio_holdings(inp, general_update_main_loop_positions, general_update_main_loop_holdings, max_rows=200, clear_all=is_first_run)
+                    set_input_sheet_defaults(inp, max_rows=200)
                     update_portfolio_sheet(port, general_update_main_loop_positions, current_main_loop_live_ticks_copy)
                     update_holdings_sheet(hold, general_update_main_loop_holdings, current_main_loop_live_ticks_copy)
                     update_orders_sheet(ords, kite, clear_all=is_first_run)
@@ -277,7 +279,7 @@ if __name__=="__main__":
                     except Exception as e_gen_update_margin_main_loop_iter: pass
                 except Exception as e_general_sheet_update_main_loop_iter: pass
                 try:
-                    process_input_sheet_orders(inp, kite, order_id_map)
+                    process_input_sheet_orders(inp, kite, order_id_map) 
                 except Exception as e_input_orders:
                     pass
                 last_general_sheets_update_timestamp = time.time()

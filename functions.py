@@ -40,6 +40,9 @@ def update_sheet_with_data(sheet, data_rows, start_cell_str, num_data_cols, max_
     except Exception as e_update_sheet_helper:
         print(f"[{dt_now_str_fn()}] ERROR in update_sheet_with_data for {sheet.name}: {e_update_sheet_helper}")
 
+def clear_row_except_column_a(sheet, row_num, max_col=25):
+    sheet.range((row_num, 2), (row_num, max_col)).value = [[""] * (max_col - 1)]
+
 def update_input_sheet(sheet, kite, holdings, quotes, current_positions):
     pos_qty_map, pos_pnl_map = {}, {}
     if current_positions:
@@ -62,6 +65,13 @@ def update_input_sheet(sheet, kite, holdings, quotes, current_positions):
         if isinstance(symbol_cell, str) and ":" in symbol_cell:
             symbol_str = symbol_cell.strip().upper()
             row_num = i + 2
+
+            if not isinstance(symbol_cell, str) or not symbol_cell.strip():
+                continue
+            symbol_str = symbol_cell.strip().upper()
+            if symbol_str in ("HOLDINGS", "PORTFOLIO", "MANUAL") or ":" not in symbol_str:
+                clear_row_except_column_a(sheet, row_num, max_col=25)
+                continue
 
             qty = pos_qty_map.get(symbol_str, "")
             if qty == "" or qty == 0:
@@ -411,3 +421,25 @@ def process_input_sheet_orders(sheet_inp, kite, order_id_map):
                         sheet_inp.range(f"P{idx}").value = f"ERROR: {str(e)}"
     except Exception as e:
         print(f"Error in process_input_sheet_orders: {e}")
+
+def set_input_sheet_defaults(inp_sheet, max_rows=200):
+    for i in range(max_rows):
+        row_num = i + 2
+        symbol = inp_sheet.range(f"A{row_num}").value
+        if not symbol or not isinstance(symbol, str) or not symbol.strip():
+            continue
+        symbol_up = symbol.strip().upper()
+        s_val = inp_sheet.range(f"S{row_num}").value
+        if not s_val:
+            inp_sheet.range(f"S{row_num}").value = "regular"
+        u_val = inp_sheet.range(f"U{row_num}").value
+        if not u_val:
+            if "BFO" in symbol_up or "NFO" in symbol_up:
+                inp_sheet.range(f"U{row_num}").value = "NRML"
+            elif "BSE" in symbol_up or "NSE" in symbol_up:
+                inp_sheet.range(f"U{row_num}").value = "CNC"
+            else:
+                inp_sheet.range(f"U{row_num}").value = ""
+        v_val = inp_sheet.range(f"V{row_num}").value
+        if not v_val:
+            inp_sheet.range(f"V{row_num}").value = "DAY"
