@@ -41,52 +41,40 @@ def update_sheet_with_data(sheet, data_rows, start_cell_str, num_data_cols, max_
         print(f"[{dt_now_str_fn()}] ERROR in update_sheet_with_data for {sheet.name}: {e_update_sheet_helper}")
 
 def update_input_sheet(sheet, kite, holdings, quotes, current_positions):
-    pos_qty_map = {}
+    pos_qty_map, pos_pnl_map = {}, {}
     if current_positions:
         for pos in current_positions:
-            exch = pos.get('exchange'); sym = pos.get('tradingsymbol'); qty = pos.get('quantity', 0)
-            if exch and sym: pos_qty_map[f"{exch.upper()}:{sym.upper()}"] = qty
+            key = f"{pos.get('exchange','').upper()}:{pos.get('tradingsymbol','').upper()}"
+            pos_qty_map[key] = pos.get('quantity', 0)
+            pos_pnl_map[key] = pos.get('pnl', None)
 
-    try:
-        symbols_data = sheet.range(f"A2:A{MAX_INPUT_ROWS + 1}").value
-    except Exception as e_read_input_all:
-        return
-    price_updates = {}
-    portfolio_qty_updates = {}
-    timestamp_updates = {}
+    hold_qty_map, hold_pnl_map = {}, {}
+    if holdings:
+        for h in holdings:
+            key = f"{h.get('exchange','').upper()}:{h.get('tradingsymbol','').upper()}"
+            hold_qty_map[key] = h.get('quantity', 0)
+            hold_pnl_map[key] = h.get('pnl', None)
+
+    symbols_data = sheet.range(f"A2:A{MAX_INPUT_ROWS + 1}").value
     now_str_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     for i, symbol_cell in enumerate(symbols_data):
         if isinstance(symbol_cell, str) and ":" in symbol_cell:
             symbol_str = symbol_cell.strip().upper()
             row_num = i + 2
+
             qty = pos_qty_map.get(symbol_str, "")
             if qty == "" or qty == 0:
-                holding_qty = 0
-                for h in holdings:
-                    exch = h.get('exchange', '').upper()
-                    tsym = h.get('tradingsymbol', '').upper()
-                    s = f"{exch}:{tsym}"
-                    if s == symbol_str:
-                        holding_qty = h.get('quantity', 0)
-                        break
-                qty = holding_qty
-            portfolio_qty_updates[row_num] = qty
-            price_row = get_price_fields_with_fallback(symbol_str, quotes, kite)
-            price_updates[row_num] = price_row
-            timestamp_updates[row_num] = now_str_timestamp
-    try:
-        for row_num, qty in portfolio_qty_updates.items():
+                qty = hold_qty_map.get(symbol_str, "")
             sheet.range(f"B{row_num}").value = qty
-        
-        for row_num, prices in price_updates.items():
-            sheet.range(f"C{row_num}:K{row_num}").value = [prices]
-            
-        for row_num, timestamp in timestamp_updates.items():
-            sheet.range(f"R{row_num}").value = timestamp
-            
-    except Exception as e_input_write_batch:
-        print(f"ERROR writing updates to INPUT sheet: {e_input_write_batch}")
+
+            price_row = get_price_fields_with_fallback(symbol_str, quotes, kite)
+            sheet.range(f"C{row_num}:K{row_num}").value = [price_row]
+            sheet.range(f"R{row_num}").value = now_str_timestamp
+            pnl_val = pos_pnl_map.get(symbol_str)
+            if pnl_val in ("", None):
+                pnl_val = hold_pnl_map.get(symbol_str)
+            sheet.range(f"Q{row_num}").value = pnl_val if pnl_val not in (None, "") else ""
 
 def update_portfolio_sheet(sheet_port, positions, quotes):
     portfolio_rows_data = []
@@ -94,21 +82,17 @@ def update_portfolio_sheet(sheet_port, positions, quotes):
         for pos in positions:
             if pos.get('quantity', 0) == 0:
                 continue
-            exch_p = pos.get('exchange', '').upper(); tsym_p = pos.get('tradingsymbol', '').upper()
+            exch_p = pos.get('exchange', '').upper()
+            tsym_p = pos.get('tradingsymbol', '').upper()
             symbol_key_p = f"{exch_p}:{tsym_p}" if exch_p and tsym_p else None
-            live_ltp_p = pos.get('last_price', '') 
-            if symbol_key_p and symbol_key_p in quotes: live_ltp_p = quotes[symbol_key_p].get('last_price', live_ltp_p)
-            pnl_p = pos.get('pnl', '') 
-            day_mtm_pnl = pos.get('m2m', pos.get('unrealised_pnl', pos.get('pnl',''))) 
-            avg_price_p = pos.get('average_price'); qty_p = pos.get('quantity')
-            if live_ltp_p != "" and avg_price_p is not None and qty_p is not None:
-                try: pnl_p = (float(live_ltp_p) - float(avg_price_p)) * int(qty_p)
-                except (TypeError, ValueError): pass 
+            live_ltp_p = pos.get('last_price', '')
+            if symbol_key_p and symbol_key_p in quotes:
+                live_ltp_p = quotes[symbol_key_p].get('last_price', live_ltp_p)
+            pnl_p = pos.get('pnl', '')
             portfolio_rows_data.append([
-                pos.get('instrument_token', ''), tsym_p, exch_p, qty_p, 
-                avg_price_p, live_ltp_p, pnl_p, 
-                pos.get('realised_pnl', ''), 
-                day_mtm_pnl 
+                pos.get('instrument_token', ''), tsym_p, exch_p, pos.get('quantity'),
+                pos.get('average_price'), live_ltp_p, pnl_p,
+                pos.get('realised_pnl', ''), pos.get('m2m', pos.get('unrealised_pnl', pnl_p))
             ])
     update_sheet_with_data(sheet_port, portfolio_rows_data, "A2", 9, MAX_PORTFOLIO_ROWS + 1, "K1")
 
@@ -116,47 +100,48 @@ def update_holdings_sheet(sheet_hold, holdings, quotes):
     holding_rows_data = []
     if holdings:
         for h_item in holdings:
-            exch_h = h_item.get('exchange', '').upper(); tsym_h = h_item.get('tradingsymbol', '').upper()
+            exch_h = h_item.get('exchange', '').upper()
+            tsym_h = h_item.get('tradingsymbol', '').upper()
             symbol_key_h = f"{exch_h}:{tsym_h}" if exch_h and tsym_h else None
             live_ltp_h = h_item.get('last_price', '')
-            if symbol_key_h and symbol_key_h in quotes: live_ltp_h = quotes[symbol_key_h].get('last_price', live_ltp_h)
+            if symbol_key_h and symbol_key_h in quotes:
+                live_ltp_h = quotes[symbol_key_h].get('last_price', live_ltp_h)
             pnl_h = h_item.get('pnl', '')
-            avg_price_h = h_item.get('average_price'); qty_h = h_item.get('quantity')
-            if live_ltp_h != "" and avg_price_h is not None and qty_h is not None and qty_h != 0:
-                try: pnl_h = (float(live_ltp_h) - float(avg_price_h)) * int(qty_h)
-                except (TypeError, ValueError): pass
             holding_rows_data.append([
-                tsym_h, exch_h, h_item.get('isin', ''), qty_h, h_item.get('t1_quantity', ''), 
-                avg_price_h, live_ltp_h, h_item.get('close_price', ''), pnl_h, 
+                tsym_h, exch_h, h_item.get('isin', ''), h_item.get('quantity'), h_item.get('t1_quantity', ''),
+                h_item.get('average_price'), live_ltp_h, h_item.get('close_price', ''), pnl_h,
                 h_item.get('day_change', ''), h_item.get('day_change_percentage', '')
             ])
     update_sheet_with_data(sheet_hold, holding_rows_data, "A2", 11, MAX_HOLDINGS_ROWS + 1, "L1")
 
-def update_orders_sheet(sheet_ords, kite):
+def update_orders_sheet(sheet_ords, kite, clear_all):
     try:
+        if clear_all:
+            sheet_ords.range("A2:P201").value = [[""]*16]*200
+
         orders_api_data = kite.orders()
         orders_rows_for_sheet = []
         if orders_api_data:
             for o_item in orders_api_data:
                 orders_rows_for_sheet.append([
-                    o_item.get("order_id") and str(o_item.get("order_id")),  # A
-                    o_item.get("variety"),                                    # B
-                    o_item.get("status"),                                     # C
-                    o_item.get("tradingsymbol"),                             # D
-                    o_item.get("exchange"),                                   # E
-                    o_item.get("order_type"),                                # F
-                    o_item.get("product"),                                    # G
-                    o_item.get("transaction_type"),                          # H
-                    o_item.get("quantity"),                                   # I
-                    o_item.get("price"),                                      # J
-                    o_item.get("trigger_price"),                             # K
-                    o_item.get("average_price"),                             # L
-                    o_item.get("pending_quantity"),                          # M
-                    o_item.get("filled_quantity"),                           # N
-                    o_item.get("order_timestamp"),                           # O
-                    o_item.get("parent_order_id", "")                        # P
+                    str(o_item.get("order_id")) if o_item.get("order_id") else "",
+                    o_item.get("variety"),
+                    o_item.get("status"),
+                    o_item.get("tradingsymbol"),
+                    o_item.get("exchange"),
+                    o_item.get("order_type"),
+                    o_item.get("product"),
+                    o_item.get("transaction_type"),
+                    o_item.get("quantity"),
+                    o_item.get("price"),
+                    o_item.get("trigger_price"),
+                    o_item.get("average_price"),
+                    o_item.get("pending_quantity"),
+                    o_item.get("filled_quantity"),
+                    o_item.get("order_timestamp"),
+                    o_item.get("parent_order_id", "")
                 ])
-        update_sheet_with_data(sheet_ords, orders_rows_for_sheet, "A2", 16, MAX_ORDERS_ROWS + 1, "AA1")            
+        update_sheet_with_data(sheet_ords, orders_rows_for_sheet, "A2", 16, MAX_ORDERS_ROWS + 1, "AA1")
     except Exception as e:
         print(f"Error updating orders sheet: {e}")
 
@@ -267,7 +252,6 @@ def autofill_input_sheet_with_portfolio_holdings(inp_sheet, positions, holdings,
         print("Clearing entire INPUT sheet and rebuilding from live data...")
         inp_sheet.range(f"A2:A{max_rows+1}").value = [[""]] * max_rows
         inp_sheet.range(f"B2:R{max_rows+1}").value = [[""]*17] * max_rows
-    
     holdings_syms = []
     holdings_set = set()
     for h in holdings:
@@ -289,19 +273,37 @@ def autofill_input_sheet_with_portfolio_holdings(inp_sheet, positions, holdings,
             if s not in holdings_set and s not in portfolio_set:
                 portfolio_syms.append(s)
                 portfolio_set.add(s)
-    
     manual_syms = []
     if not clear_all:
         existing = inp_sheet.range(f"A2:A{max_rows+1}").value
         for s in existing:
             if isinstance(s, str) and s.strip():
                 s_up = s.strip().upper()
-                if s_up not in holdings_set and s_up not in portfolio_set:
+                if (
+                    s_up not in holdings_set
+                    and s_up not in portfolio_set
+                    and s_up not in ["HOLDINGS", "PORTFOLIO", "MANUAL"]
+                ):
                     manual_syms.append(s_up)
-
-    all_rows = holdings_syms + portfolio_syms + manual_syms
+    all_rows = []
+    if holdings_syms:
+        all_rows.append("HOLDINGS")
+        all_rows.extend(holdings_syms)
+    if portfolio_syms:
+        all_rows.append("PORTFOLIO")
+        all_rows.extend(portfolio_syms)
+    if manual_syms:
+        all_rows.append("MANUAL")
+        all_rows.extend(manual_syms)
     all_rows = all_rows[:max_rows]
     inp_sheet.range(f"A2:A{max_rows+1}").value = [[s] for s in all_rows] + [[""]] * (max_rows - len(all_rows))
+    if clear_all:
+        for i, s in enumerate(all_rows):
+            cell = inp_sheet.range(f"A{2 + i}")
+            if s in ("HOLDINGS", "PORTFOLIO", "MANUAL"):
+                cell.font.bold = True
+            else:
+                cell.font.bold = False 
 
 def get_price_fields_with_fallback(symbol_str, quotes, kite):
     q_data = quotes.get(symbol_str, {})

@@ -268,11 +268,11 @@ if __name__=="__main__":
                 except Exception as e_gen_update_data_fetch_main_loop_iter: pass
                 try:
                     autofill_input_sheet_with_portfolio_holdings(inp, general_update_main_loop_positions, general_update_main_loop_holdings, max_rows=200, clear_all=is_first_run)
-                    is_first_run = False
                     update_portfolio_sheet(port, general_update_main_loop_positions, current_main_loop_live_ticks_copy)
                     update_holdings_sheet(hold, general_update_main_loop_holdings, current_main_loop_live_ticks_copy)
-                    update_orders_sheet(ords, kite)
+                    update_orders_sheet(ords, kite, clear_all=is_first_run)
                     process_order_modifications(ords, kite)
+                    is_first_run = False
                     try: update_settings_sheet(sett, kite)
                     except Exception as e_gen_update_margin_main_loop_iter: pass
                 except Exception as e_general_sheet_update_main_loop_iter: pass
