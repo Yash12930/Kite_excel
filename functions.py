@@ -261,7 +261,8 @@ def autofill_input_sheet_with_portfolio_holdings(inp_sheet, positions, holdings,
     if clear_all:
         print("Clearing entire INPUT sheet and rebuilding from live data...")
         inp_sheet.range(f"A2:A{max_rows+1}").value = [[""]] * max_rows
-        inp_sheet.range(f"B2:R{max_rows+1}").value = [[""]*17] * max_rows
+        inp_sheet.range(f"B2:K{max_rows+1}").value = [[""]*10] * max_rows
+        inp_sheet.range(f"Q2:R{max_rows+1}").value = [[""]*2] * max_rows
     holdings_syms = []
     holdings_set = set()
     for h in holdings:
