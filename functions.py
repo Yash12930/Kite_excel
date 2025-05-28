@@ -1,8 +1,6 @@
 import datetime
-import xlwings as xw
+import os
 from kiteconnect.exceptions import KiteException
-import time
-import traceback
 
 MAX_INPUT_ROWS = 200
 MAX_PORTFOLIO_ROWS = 50 
@@ -61,30 +59,44 @@ def update_input_sheet(sheet, kite, holdings, quotes, current_positions):
     symbols_data = sheet.range(f"A2:A{MAX_INPUT_ROWS + 1}").value
     now_str_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    qty_list = []
+    price_rows = []
+    timestamp_list = []
+    pnl_list = []
+
     for i, symbol_cell in enumerate(symbols_data):
-        if isinstance(symbol_cell, str) and ":" in symbol_cell:
-            symbol_str = symbol_cell.strip().upper()
-            row_num = i + 2
+        row_num = i + 2
+        if not isinstance(symbol_cell, str) or not symbol_cell.strip():
+            qty_list.append("")
+            price_rows.append([""]*9)
+            timestamp_list.append("")
+            pnl_list.append("")
+            continue
+        symbol_str = symbol_cell.strip().upper()
+        if symbol_str in ("HOLDINGS", "PORTFOLIO", "MANUAL") or ":" not in symbol_str:
+            clear_row_except_column_a(sheet, row_num, max_col=25)
+            qty_list.append("")
+            price_rows.append([""]*9)
+            timestamp_list.append("")
+            pnl_list.append("")
+            continue
+        qty = pos_qty_map.get(symbol_str, "")
+        if qty == "" or qty == 0:
+            qty = hold_qty_map.get(symbol_str, "")
+        qty_list.append(qty)
+        price_row = get_price_fields_with_fallback(symbol_str, quotes, kite)
+        price_rows.append(price_row)
+        timestamp_list.append(now_str_timestamp)
+        pnl_val = pos_pnl_map.get(symbol_str)
+        if pnl_val in ("", None):
+            pnl_val = hold_pnl_map.get(symbol_str)
+        pnl_list.append(pnl_val if pnl_val not in (None, "") else "")
 
-            if not isinstance(symbol_cell, str) or not symbol_cell.strip():
-                continue
-            symbol_str = symbol_cell.strip().upper()
-            if symbol_str in ("HOLDINGS", "PORTFOLIO", "MANUAL") or ":" not in symbol_str:
-                clear_row_except_column_a(sheet, row_num, max_col=25)
-                continue
-
-            qty = pos_qty_map.get(symbol_str, "")
-            if qty == "" or qty == 0:
-                qty = hold_qty_map.get(symbol_str, "")
-            sheet.range(f"B{row_num}").value = qty
-
-            price_row = get_price_fields_with_fallback(symbol_str, quotes, kite)
-            sheet.range(f"C{row_num}:K{row_num}").value = [price_row]
-            sheet.range(f"R{row_num}").value = now_str_timestamp
-            pnl_val = pos_pnl_map.get(symbol_str)
-            if pnl_val in ("", None):
-                pnl_val = hold_pnl_map.get(symbol_str)
-            sheet.range(f"Q{row_num}").value = pnl_val if pnl_val not in (None, "") else ""
+    # Now write in batch:
+    sheet.range(f"B2:B{MAX_INPUT_ROWS+1}").value = [[q] for q in qty_list]
+    sheet.range(f"C2:K{MAX_INPUT_ROWS+1}").value = price_rows
+    sheet.range(f"R2:R{MAX_INPUT_ROWS+1}").value = [[t] for t in timestamp_list]
+    sheet.range(f"Q2:Q{MAX_INPUT_ROWS+1}").value = [[p] for p in pnl_list]
 
 def update_portfolio_sheet(sheet_port, positions, quotes):
     portfolio_rows_data = []
@@ -257,9 +269,20 @@ def update_settings_sheet(sheet_sett, kite):
         print(f"[{dt_now_str_fn()}] General Error fetching/writing margin info: {e_margin_gen}")
         sheet_sett.range("B4").value = "Error"
 
+def should_clear_today(config_file="last_clear_date.txt"):
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    last_cleared = None
+    if os.path.exists(config_file):
+        with open(config_file, "r") as f:
+            last_cleared = f.read().strip()
+    if last_cleared != today_str:
+        with open(config_file, "w") as f:
+            f.write(today_str)
+        return True
+    return False
+
 def autofill_input_sheet_with_portfolio_holdings(inp_sheet, positions, holdings, max_rows=200, clear_all=False):
     if clear_all:
-        print("Clearing entire INPUT sheet and rebuilding from live data...")
         inp_sheet.range(f"A2:A{max_rows+1}").value = [[""]] * max_rows
         inp_sheet.range(f"B2:K{max_rows+1}").value = [[""]*10] * max_rows
         inp_sheet.range(f"Q2:R{max_rows+1}").value = [[""]*2] * max_rows
@@ -273,6 +296,7 @@ def autofill_input_sheet_with_portfolio_holdings(inp_sheet, positions, holdings,
             if s not in holdings_set:
                 holdings_syms.append(s)
                 holdings_set.add(s)
+
     portfolio_syms = []
     portfolio_set = set()
     for pos in positions:
@@ -284,18 +308,29 @@ def autofill_input_sheet_with_portfolio_holdings(inp_sheet, positions, holdings,
             if s not in holdings_set and s not in portfolio_set:
                 portfolio_syms.append(s)
                 portfolio_set.add(s)
-    manual_syms = []
-    if not clear_all:
-        existing = inp_sheet.range(f"A2:A{max_rows+1}").value
-        for s in existing:
-            if isinstance(s, str) and s.strip():
-                s_up = s.strip().upper()
-                if (
-                    s_up not in holdings_set
-                    and s_up not in portfolio_set
-                    and s_up not in ["HOLDINGS", "PORTFOLIO", "MANUAL"]
-                ):
-                    manual_syms.append(s_up)
+    if clear_all:
+        all_rows = []
+        if holdings_syms:
+            all_rows.append("HOLDINGS")
+            all_rows.extend(holdings_syms)
+        if portfolio_syms:
+            all_rows.append("PORTFOLIO")
+            all_rows.extend(portfolio_syms)
+        all_rows.append("MANUAL")
+        inp_sheet.range(f"A2:A{max_rows+1}").value = [[s] for s in all_rows] + [[""]] * (max_rows - len(all_rows))
+        for i, s in enumerate(all_rows):
+            cell = inp_sheet.range(f"A{2 + i}")
+            if s in ("HOLDINGS", "PORTFOLIO", "MANUAL"):
+                cell.font.bold = True
+            else:
+                cell.font.bold = False
+        return
+    existing = inp_sheet.range(f"A2:A{max_rows+1}").value
+    manual_start = None
+    for i, s in enumerate(existing):
+        if isinstance(s, str) and s.strip().upper() == "MANUAL":
+            manual_start = i
+            break
     all_rows = []
     if holdings_syms:
         all_rows.append("HOLDINGS")
@@ -303,18 +338,10 @@ def autofill_input_sheet_with_portfolio_holdings(inp_sheet, positions, holdings,
     if portfolio_syms:
         all_rows.append("PORTFOLIO")
         all_rows.extend(portfolio_syms)
-    if manual_syms:
-        all_rows.append("MANUAL")
-        all_rows.extend(manual_syms)
-    all_rows = all_rows[:max_rows]
-    inp_sheet.range(f"A2:A{max_rows+1}").value = [[s] for s in all_rows] + [[""]] * (max_rows - len(all_rows))
-    if clear_all:
-        for i, s in enumerate(all_rows):
-            cell = inp_sheet.range(f"A{2 + i}")
-            if s in ("HOLDINGS", "PORTFOLIO", "MANUAL"):
-                cell.font.bold = True
-            else:
-                cell.font.bold = False 
+    if manual_start is not None:
+        inp_sheet.range(f"A2:A{2+manual_start}").value = [[s] for s in all_rows + ["MANUAL"]]
+    else:
+        inp_sheet.range(f"A2:A{len(all_rows)+2}").value = [[s] for s in all_rows]
 
 def get_price_fields_with_fallback(symbol_str, quotes, kite):
     q_data = quotes.get(symbol_str, {})
@@ -430,6 +457,8 @@ def set_input_sheet_defaults(inp_sheet, max_rows=200):
         if not symbol or not isinstance(symbol, str) or not symbol.strip():
             continue
         symbol_up = symbol.strip().upper()
+        if symbol_up in ("HOLDINGS", "PORTFOLIO", "MANUAL"):
+            continue
         s_val = inp_sheet.range(f"S{row_num}").value
         if not s_val:
             inp_sheet.range(f"S{row_num}").value = "regular"

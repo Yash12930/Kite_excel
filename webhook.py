@@ -12,7 +12,7 @@ from functions import (
     update_input_sheet, update_portfolio_sheet, update_holdings_sheet,
     update_orders_sheet, process_order_modifications, update_settings_sheet,
     fetch_holdings, autofill_input_sheet_with_portfolio_holdings, process_input_sheet_orders,
-    set_input_sheet_defaults
+    set_input_sheet_defaults, should_clear_today
 )
 
 API_KEY = "v6khvkcvmrjba7fb" 
@@ -20,6 +20,7 @@ ACCESS_TOKEN_FILE = "excelapporsome/access_token.txt"
 EXCEL_FILE = "excelapporsome/options_live.xlsm" 
 PREFETCH_EXCHANGES = ["NSE", "NFO", "BSE", "BFO", "MCX"]
 GENERAL_UPDATE_INTERVAL_SECONDS = 2
+config_file = "excelapporsome/last_clear_date.txt"
 app = Flask(__name__)
 refresh_queue = queue.Queue() 
 order_id_map = {}
@@ -228,7 +229,6 @@ if __name__=="__main__":
         import traceback; traceback.print_exc()
     print("Starting MAIN PROCESSING LOOP. Ctrl+C to exit.")
     last_general_sheets_update_timestamp = 0
-    is_first_run = True
 
     try:
         while True:
@@ -268,13 +268,14 @@ if __name__=="__main__":
                     general_update_main_loop_holdings = fetch_holdings(kite)
                 except Exception as e_gen_update_data_fetch_main_loop_iter: pass
                 try:
-                    autofill_input_sheet_with_portfolio_holdings(inp, general_update_main_loop_positions, general_update_main_loop_holdings, max_rows=200, clear_all=is_first_run)
+                    clear_today = should_clear_today(config_file)
+                    autofill_input_sheet_with_portfolio_holdings(inp, general_update_main_loop_positions, general_update_main_loop_holdings, max_rows=200, clear_all=clear_today)
                     set_input_sheet_defaults(inp, max_rows=200)
                     update_portfolio_sheet(port, general_update_main_loop_positions, current_main_loop_live_ticks_copy)
                     update_holdings_sheet(hold, general_update_main_loop_holdings, current_main_loop_live_ticks_copy)
-                    update_orders_sheet(ords, kite, clear_all=is_first_run)
+                    update_orders_sheet(ords, kite, clear_all=clear_today)
+                    if clear_today: wb.save()
                     process_order_modifications(ords, kite)
-                    is_first_run = False
                     try: update_settings_sheet(sett, kite)
                     except Exception as e_gen_update_margin_main_loop_iter: pass
                 except Exception as e_general_sheet_update_main_loop_iter: pass
