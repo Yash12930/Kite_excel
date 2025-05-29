@@ -136,8 +136,3 @@ This project integrates Zerodha's Kite Connect API with Microsoft Excel to provi
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
 Please make sure to update tests as appropriate.
-
-## License
-
-(You should specify a license here, e.g., MIT License. If you don't have one, you can choose one from choosealicense.com)
-
