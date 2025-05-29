@@ -8,6 +8,8 @@ from flask import Flask, request, jsonify
 from kiteconnect import KiteConnect, KiteTicker
 from kiteconnect.exceptions import KiteException 
 
+# Import your functions from the functions module
+# Ensure you have a functions.py file with the required functions defined
 from functions import (
     update_input_sheet, update_portfolio_sheet, update_holdings_sheet,
     update_orders_sheet, process_order_modifications, update_settings_sheet,
@@ -15,12 +17,12 @@ from functions import (
     set_input_sheet_defaults, should_clear_today
 )
 
-API_KEY = "v6khvkcvmrjba7fb" 
-ACCESS_TOKEN_FILE = "excelapporsome/access_token.txt" 
-EXCEL_FILE = "excelapporsome/options_live.xlsm" 
-PREFETCH_EXCHANGES = ["NSE", "NFO", "BSE", "BFO", "MCX"]
-GENERAL_UPDATE_INTERVAL_SECONDS = 2
-config_file = "excelapporsome/last_clear_date.txt"
+API_KEY = "xxxxx" # Replace with your actual API key 
+ACCESS_TOKEN_FILE = "access_token.txt" # Replace with your actual access token file path
+EXCEL_FILE = "options_live.xlsm" # Replace with your actual Excel file path
+PREFETCH_EXCHANGES = ["NSE", "NFO", "BSE", "BFO", "MCX"] # Exchanges to prefetch instruments from
+GENERAL_UPDATE_INTERVAL_SECONDS = 2 # Interval for general updates to sheets
+config_file = "last_clear_date.txt" # Replace with your actual config file path
 app = Flask(__name__)
 refresh_queue = queue.Queue() 
 order_id_map = {}
