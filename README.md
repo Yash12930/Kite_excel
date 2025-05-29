@@ -48,26 +48,66 @@ This project integrates Zerodha's Kite Connect API with Microsoft Excel to provi
 
 ## Configuration
 
-1.  **API Credentials:**
+1.  **API Credentials in `auth.py`:**
     *   Open the `auth.py` file.
     *   Locate the placeholders for `api_key` and `api_secret`.
-    *   Replace these placeholders with your actual Zerodha Kite Connect API Key and API Secret.
+    *   Replace these placeholders with your actual Zerodha Kite Connect API Key and API Secret. This script is primarily used for the initial generation of the `access_token`.
     ```
     # In auth.py (example - structure might vary slightly)
     api_key = "YOUR_API_KEY"
     api_secret = "YOUR_API_SECRET"
     ```
 
-2.  **Generate Access Token:**
-    *   Run the `auth.py` script once to generate an `access_token.txt` file. This script will likely prompt you to log in via a URL and provide a request token.
+2.  **API Key in `webhook.py` (and potentially other scripts):**
+    *   Open the `webhook.py` file (and any other scripts like `functions.py` if they independently initialize `KiteConnect`).
+    *   Ensure that the `api_key` is also available to this script. It might be hardcoded (less secure for sharing), read from a configuration file, or passed from `auth.py` if your structure allows. Commonly, it's re-declared or read from a central config. For example:
+    ```
+    # In webhook.py, near the top or where KiteConnect is initialized
+    api_key = "YOUR_API_KEY" # Make sure this is your actual API key
+    # ...
+    # kite = KiteConnect(api_key=api_key)
+    # kite.set_access_token(access_token_from_file)
+    ```
+    *   **Important**: Be consistent. The `api_key` used in `webhook.py` to initialize `KiteConnect` must be the same one used in `auth.py` to generate the `access_token`.
+
+3.  **Generate Access Token:**
+    *   Run the `auth.py` script once:
     ```
     python auth.py
     ```
-    *   Follow the on-screen instructions. Upon successful authentication, an `access_token.txt` file containing your access token will be created in the project directory.
+    *   This will guide you through the login process (usually opening a Zerodha login URL) and, upon successful authentication with the `request_token`, it will generate an `access_token.txt` file. This file contains the `access_token` that `webhook.py` will use.
 
-3.  **Excel File (`options_live.xlsm`):**
+4.  **Excel File (`options_live.xlsm`):**
     *   Ensure the `options_live.xlsm` file is in the same directory as the Python scripts.
-    *   The Excel file might have VBA macros that interact with the Python scripts via `xlwings`. Familiarize yourself with any buttons or UDFs (User Defined Functions) provided in the Excel sheet.
+    *   Enable macros in Excel as described previously.
+
+## How It Works (Conceptual Flow)
+
+1.  **Authentication (`auth.py`)**:
+    *   User provides their `api_key` and `api_secret` within `auth.py`.
+    *   User runs `auth.py`. The script uses the `api_key` to generate a login URL [1].
+    *   User logs in, obtains a `request_token`.
+    *   `auth.py` uses the `api_key`, `request_token`, and `api_secret` to generate an `access_token` and saves it to `access_token.txt` [1, 2].
+
+2.  **Initialization (`webhook.py`)**:
+    *   The `webhook.py` script reads the `api_key` (either hardcoded, from a config, or defined within the script).
+    *   It reads the `access_token` from `access_token.txt`.
+    *   It initializes `KiteConnect` using this `api_key` and then sets the `access_token` [2, 5].
+    *   It initializes `KiteTicker` using the `api_key` and `access_token`.
+    *   It starts a `Flask` web server to listen for POST requests (webhooks from Kite Ticker).
+    *   It subscribes to instrument tokens for Nifty/Bank Nifty options.
+
+3.  **Real-time Data (`KiteTicker` & `Flask`)**:
+    *   Kite Ticker pushes live data to the `/webhook` endpoint defined in `webhook.py`.
+    *   The Flask app receives this data.
+
+4.  **Excel Integration (`xlwings` & `functions.py`)**:
+    *   The `webhook.py` (or functions in `functions.py` called by it) uses `xlwings` to connect to the `options_live.xlsm` workbook.
+    *   Live data is written to specific cells/ranges in the Excel sheet.
+
+5.  **User Interface (`options_live.xlsm`)**:
+    *   The user views and interacts with the live data in Excel.
+    *   VBA macros within Excel might call Python functions (via `xlwings`) for actions like manual refresh, changing subscribed instruments, etc.
 
 ## How to Use
 
