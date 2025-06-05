@@ -400,6 +400,7 @@ def process_input_sheet_orders(sheet_inp, kite, order_id_map):
             if (symbol and qty and direction and entry_signal and variety and order_type and product and validity and
                 str(entry_signal).strip().lower() == "yes" and (not entry_status or entry_status == "")):
                 try:
+                    symbol = symbol.strip().upper()
                     exchange, tradingsymbol = symbol.split(":")
                     order_params = dict(
                         variety=variety.strip().lower(),
